@@ -1,13 +1,58 @@
 import requests
+from bs4 import BeautifulSoup
+import base64
 
 stores = {}
 
 
 def main():
-    global stores
-    stores = get_stores_data()
-    get_data('electronic36', 'cat=58513', 1, 100000)
+    #global stores
+    #stores = get_stores_data()
+    #get_data('electronic36', 'cat=58513', 1, 100000)
+
+    print(get_free_proxies(1))
+
     pass
+
+
+def get_free_proxies(page: int = 1) -> list[str]:
+    result = []
+
+    headers = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Connection': 'keep-alive',
+        'Referer': 'http://free-proxy.cz/en/proxylist',
+        'Upgrade-Insecure-Requests': '1',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    }
+
+    response = requests.get(f'http://free-proxy.cz/en/proxylist/main/{page}', headers=headers, proxies={'https': '89.43.31.134'}, verify=False)
+
+    if response.status_code != 200:
+        raise Exception('Не удалось получить список прокси')
+
+    with open('index.html', 'w', encoding='utf-8') as file:
+        file.write(response.text)
+
+    soup = BeautifulSoup(response.text, 'lxml')
+    table = soup.find('table', id='proxy_list').find('tbody').find_all('tr')
+
+    for row in table:
+        try:
+            ip = row.find('td').find('script').text
+        except Exception as ex:
+            print(f'Ошибка во время получения прокси: {ex}')
+            continue
+
+        if ip:
+            ip = base64.b64decode(ip.split('"')[1]).decode('utf-8')
+            port = row.find('span', class_='fport').text
+            proxy = f'{ip}:{port}'
+            print(proxy)
+            result.append(proxy)
+
+    return result
 
 
 def get_data(shard: str, query: str, page: int, max_price: int = None):
