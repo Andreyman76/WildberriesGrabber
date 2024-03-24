@@ -1,5 +1,6 @@
+from threading import Event
 import requests
-
+from Logger import Logger
 from ProductsRepository import ProductsRepository
 from TgProductInfo import TgProductInfo
 from WbCategoryInfo import WbCategoryInfo
@@ -11,29 +12,44 @@ class WbApiGrabber:
     __stores = {}
     __proxies = {}
 
-    def __init__(self, repository: ProductsRepository, proxies=None):
-        self.repository = repository
+    def __init__(
+            self,
+            repository: ProductsRepository,
+            categories: list[WbCategoryInfo],
+            min_discount: float,
+            proxies=None):
+        self.__repository = repository
+        self.__categories = categories
+        self.__min_discount = min_discount
 
         if proxies is None:
             proxies = {}
 
         self.__proxies = proxies
 
-    def get_products_at_discount(self, categories: list[WbCategoryInfo], min_discount: float) -> list[TgProductInfo]:
-        for category in categories:
-            for product in self.__get_products(category):
-                old_price = self.repository.get_product_price(product.product_id)
+    def get_products_at_discount(self, stop_event: Event) -> list[TgProductInfo]:
+        for category in self.__categories:
+            if stop_event.is_set():
+                return iter([])
 
-                if old_price is not None and (old_price - product.current_price) / old_price >= min_discount:
+            for product in self.__get_products(category, stop_event):
+                if stop_event.is_set():
+                    return iter([])
+
+                last_price = self.__repository.get_product_price(product.product_id)
+
+                if last_price != 0 and (last_price - product.current_price) / last_price >= self.__min_discount:
                     product_info = self.__get_product_info(product)
 
                     if product_info.current_price <= product_info.price_history.min_price:
                         yield product_info
 
-                self.repository.update_product_price(product.product_id, product.current_price)
-        pass
+                self.__repository.update_product_price(product.product_id, product.current_price)
 
-    def __get_products(self, category: WbCategoryInfo) -> list[WbProductInfo]:
+    def __get_products(self, category: WbCategoryInfo, stop_event: Event) -> list[WbProductInfo]:
+        if stop_event.is_set():
+            return iter([])
+
         url = f'https://catalog.wb.ru/catalog/{category.shard}/v2/catalog'
 
         query_key, query_value = category.query.split('=')
@@ -55,12 +71,11 @@ class WbApiGrabber:
             response = requests.get(url, params=params, proxies=self.__proxies)
 
             if response.status_code != 200:
+                Logger.warning(f'No ok response from {url}. Status code: {response.status_code}')
                 continue
 
             response_json = response.json()
             products = response_json['data']['products']
-
-            print(f'{category.name}, стр {page + 1}: {len(products)} шт')
 
             for product in products:
                 sizes = product.get('sizes')
@@ -112,12 +127,15 @@ class WbApiGrabber:
         )
 
     def __load_stores_data(self):
+        Logger.info('Load stores data')
         url = 'https://static-basket-01.wbbasket.ru/vol0/data/stores-data.json'
-        response = requests.get(url).json()
+        response = requests.get(url)
 
-        if response.status_code == 200:
-            self.__stores = {i['id']: i['name'] for i in response}
-        pass
+        if response.status_code != 200:
+            Logger.warning(f'No ok response from {url}. Status code: {response.status_code}')
+            return
+
+        self.__stores = {i['id']: i['name'] for i in response.json()}
 
     @staticmethod
     def __get_basket(vol: int) -> str:
@@ -159,6 +177,7 @@ class WbApiGrabber:
         response = requests.get(url)
 
         if response.status_code != 200:
+            Logger.warning(f'No ok response from {url}. Status code: {response.status_code}')
             return WbPriceRange(
                 min_price=0,
                 max_price=0

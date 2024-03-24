@@ -22,4 +22,4 @@ class ProductsRepository:
             cursor.execute('SELECT last_price FROM products WHERE id = (?)', (product_id,))
             price = cursor.fetchone()
 
-        return None if price is None else price[0]
+        return 0 if price is None else price[0]

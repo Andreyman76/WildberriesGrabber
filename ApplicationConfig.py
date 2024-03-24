@@ -1,17 +1,23 @@
 import json
-
 from WbCategoryInfo import WbCategoryInfo
 
 
 class ApplicationConfig:
     def __init__(self,
-                 min_discount_fraction: float = 0.2,
+                 admins=None,
+                 bot_token: str = '',
+                 min_discount: float = 0.2,
                  requests_interval: float = 60,
                  database_file_path: str = 'test.db',
                  proxies: dict = None,
                  categories: list[WbCategoryInfo] = None
                  ):
-        self.min_discount_fraction = min_discount_fraction
+        if admins is None:
+            admins = ['']
+
+        self.admins = admins
+        self.bot_token = bot_token
+        self.min_discount = min_discount
         self.requests_interval = requests_interval
         self.database_file_path = database_file_path
         self.proxies = {} if proxies is None else proxies
